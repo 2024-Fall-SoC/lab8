@@ -79,8 +79,10 @@ module DMAC_ENGINE
                                 fifo_rden;
     wire    [31:0]              fifo_rdata;
 
-
-    // it's desirable to code registers in a simple way
+	// oustanding_wr_cnt
+	reg     [9:0]       outstanding_wr_cnt;
+    
+	// it's desirable to code registers in a simple way
     always_ff @(posedge clk)
         if (!rst_n) begin
             state               <= S_IDLE;
@@ -159,7 +161,7 @@ module DMAC_ENGINE
                     dst_addr_n              = dst_addr + 'd64;
                     wcnt_n                  = awlen_o;
                     if (cnt>='d64) begin
-                        cnt_n                   = cnt[15:0] - 32'h4 - (arlen_o<<2);
+                        cnt_n                   = cnt - 'd64;
                     end
                     else begin
                         cnt_n                   = 'd0;
@@ -175,7 +177,7 @@ module DMAC_ENGINE
 
                     if (wlast) begin
                         if (cnt==16'd0) begin
-                            state_n                 = S_IDLE;
+                            state_n                 = S_WAIT;
                         end
                         else begin
                             state_n                 = S_RREQ;
@@ -187,11 +189,35 @@ module DMAC_ENGINE
                 end
             end
             // FIXME: implement S_WAIT state for project 1
-        endcase
+			S_WAIT: begin
+				if(outstanding_wr_cnt == 0) begin
+					state_n							= S_IDLE;
+				end
+			end
+		endcase
     end
 
     // FIXME: implement outstanding_wr_cnt
-    DMAC_FIFO   u_fifo
+	// - Implement checking-logic
+
+	wire				outstanding_wr_cnt_inc = awvalid_o & awready_i;
+	wire				outstanding_wr_cnt_dec = bvalid_i & bready_o;
+
+	always_ff @(posedge clk)
+		if(!rst_n) begin
+			// Max_Byte_Len / AXI_Granuality = 2^10
+			outstanding_wr_cnt					<= 10'b0;
+		end else if(outstanding_wr_cnt_inc == 1'b1) begin
+			if(outstanding_wr_cnt_dec != 1'b1) begin
+				outstanding_wr_cnt				<= outstanding_wr_cnt + 'd1;
+			end
+		end else if(outstanding_wr_cnt_dec == 1'b1) begin
+			outstanding_wr_cnt					<= outstanding_wr_cnt - 'd1;
+		end
+
+
+	
+	DMAC_FIFO   u_fifo
     (
         .clk                        (clk),
         .rst_n                      (rst_n),
